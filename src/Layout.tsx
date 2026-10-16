@@ -9,7 +9,10 @@ export default function RootLayout({ children }: PropsWithChildren) {
       enableSystem
       disableTransitionOnChange
     >
-      {children}
+      {/* 给所有页面加上安全区域顶部内边距，解决状态栏遮挡问题 */}
+      <div className="pt-[var(--safe-area-top)] min-h-screen">
+        {children}
+      </div>
 
       <Toaster
         position="top-center"
