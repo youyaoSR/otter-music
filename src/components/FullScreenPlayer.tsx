@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { LyricsPanel } from "./LyricsPanel";
 import { MusicCover } from "./MusicCover";
 import { PlayerProgressBar } from "./PlayerProgressBar";
-import { MusicTrack } from "@/types/music";
+import { MusicTrack, MusicSource, sourceLabels, searchOptions } from "@/types/music"; // 新增 MusicSource, sourceLabels, searchOptions
 import { musicApi } from "@/lib/music-api";
 import {
   ChevronDown,
@@ -24,6 +24,7 @@ import {
   SquareArrowOutUpRight,
   ClockFading,
   Maximize2,
+  ChevronLeft, // 新增返回箭头
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useMounted } from "@/hooks/use-mounted";
@@ -47,7 +48,7 @@ import toast from "react-hot-toast";
 import { useCoverColors } from "@/hooks/useCoverColors";
 import { useLandscapeMode } from "@/hooks/useLandscapeMode";
 import { LandscapePlayer } from "@/components/LandscapePlayer";
-import { getAllVisibleSourcesForSwitch } from "@/hooks/use-aggregated-sources"; // 引入平台列表
+import { getAllVisibleSourcesForSwitch } from "@/hooks/use-aggregated-sources";
 
 interface ModeIconProps {
   isRepeat: boolean;
@@ -85,7 +86,6 @@ const BackgroundLayer = memo(
 
     return (
       <div className="absolute inset-0 z-[-1] overflow-hidden bg-zinc-950">
-        {/* 动态颜色层 */}
         <div
           className={cn(
             "absolute inset-0 transition-opacity duration-1000 ease-in-out",
@@ -93,8 +93,6 @@ const BackgroundLayer = memo(
           )}
           style={dynamicStyle}
         />
-
-        {/* 封面遮罩层 */}
         <div
           className={cn(
             "absolute inset-0 transition-opacity duration-1000",
@@ -112,8 +110,6 @@ const BackgroundLayer = memo(
           <div className="absolute inset-0 bg-black/60" />
           <div className="absolute inset-0 bg-linear-to-b from-black/10 via-zinc-950/20 to-black/60" />
         </div>
-
-        {/* 兜底背景层 */}
         <div
           className={cn(
             "absolute inset-0 transition-opacity duration-1000",
@@ -129,8 +125,6 @@ const BackgroundLayer = memo(
             }}
           />
         </div>
-
-        {/* 噪点层 */}
         <div className="absolute inset-0 opacity-[0.02] mix-blend-overlay pointer-events-none select-none bg-[url('data:image/svg+xml,...')]" />
       </div>
     );
@@ -154,41 +148,36 @@ export function FullScreenPlayer({
     exit: exitLandscapeMode,
   } = useLandscapeMode(isFullScreen);
 
-  // ========== 手动切换音源状态 ==========
+  // ========== 两级菜单：手动切换音源状态 ==========
   const [showSourceMenu, setShowSourceMenu] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<MusicSource | null>(null); // 记录当前选中的平台
   const [sourceList, setSourceList] = useState<MusicTrack[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  const handleFetchSources = async () => {
+  // 打开弹窗，重置状态
+  const handleFetchSources = () => {
+    setSelectedSource(null);
+    setSourceList([]);
+    setShowSourceMenu(true);
+  };
+
+  // 当用户点击了某一个平台（比如 B站）
+  const handleSelectPlatform = async (source: MusicSource) => {
+    setSelectedSource(source);
+    setIsSearching(true);
+    setSourceList([]);
+
     const track = useMusicStore.getState().queue[useMusicStore.getState().currentIndex];
     if (!track) return;
 
-    setIsSearching(true);
-    setShowSourceMenu(true);
-
     try {
-      const sources = getAllVisibleSourcesForSwitch();
       const query = `${track.name} ${track.artist.join(" ")}`;
-      const allResults: MusicTrack[] = [];
-
-      // 并发请求每个平台，每个平台最多取 15 条
-      await Promise.all(
-        sources.map(async (source) => {
-          try {
-            const res = await musicApi.search(query, source, 1, 15);
-            if (res?.items) {
-              allResults.push(...res.items);
-            }
-          } catch (e) {
-            console.warn(`搜索平台 ${source} 失败`, e);
-          }
-        })
-      );
-
-      setSourceList(allResults);
+      // 只搜索指定的平台，并获取尽可能多的结果（例如 30 条）
+      const res = await musicApi.search(query, source, 1, 30);
+      setSourceList(res.items || []);
     } catch (e) {
-      console.error("搜索音源失败", e);
-      toast.error("搜索音源失败");
+      console.error(`搜索平台 ${source} 失败`, e);
+      toast.error("搜索该平台失败");
     } finally {
       setIsSearching(false);
     }
@@ -612,12 +601,30 @@ export function FullScreenPlayer({
         onOpenChange={setSleepDrawerOpen}
       />
 
-      {/* 音源选择弹窗 */}
+      {/* 两级菜单：音源选择弹窗 */}
       {showSourceMenu && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex flex-col justify-end sm:justify-center items-center">
           <div className="bg-zinc-900 w-full sm:max-w-md h-[70vh] sm:h-[60vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-white/10">
             <div className="flex justify-between items-center px-5 py-4 border-b border-white/10">
-              <h3 className="text-sm font-medium text-white">选择具体的音频</h3>
+              <div className="flex items-center gap-2">
+                {selectedSource && (
+                  <button
+                    onClick={() => {
+                      setSelectedSource(null);
+                      setSourceList([]);
+                    }}
+                    className="text-zinc-500 hover:text-white transition-colors text-sm flex items-center"
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    返回
+                  </button>
+                )}
+                <h3 className="text-sm font-medium text-white">
+                  {selectedSource
+                    ? `${searchOptions[selectedSource] || sourceLabels[selectedSource] || selectedSource} 的所有结果`
+                    : "选择搜索平台"}
+                </h3>
+              </div>
               <button
                 onClick={() => setShowSourceMenu(false)}
                 className="text-zinc-500 hover:text-white transition-colors text-sm"
@@ -627,39 +634,61 @@ export function FullScreenPlayer({
             </div>
 
             <div className="flex-1 overflow-y-auto px-2 py-2">
-              {isSearching ? (
-                <div className="flex justify-center items-center h-full text-zinc-500 text-sm">
-                  正在全网搜索所有音频版本...
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {sourceList.length === 0 && (
-                    <div className="text-center py-10 text-zinc-500 text-sm">
-                      没有找到其他可用的音频
-                    </div>
-                  )}
-                  {sourceList.map((item, index) => (
+              {/* 第一级：选择平台 */}
+              {!selectedSource && (
+                <div className="space-y-1 mt-2">
+                  {getAllVisibleSourcesForSwitch().map((source) => (
                     <div
-                      key={item.id + index}
-                      onClick={() => handleSwitchTrack(item)}
-                      className="flex justify-between items-center p-3 rounded-xl hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors"
+                      key={source}
+                      onClick={() => handleSelectPlatform(source)}
+                      className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors"
                     >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <div className="text-sm text-white truncate">
-                          {item.name}
-                        </div>
-                        {/* 新增：显示专辑名，用来区分不同的具体音频（如 Live 版、录音室版） */}
-                        <div className="text-xs text-zinc-500 truncate mt-1">
-                          {item.artist.join(" / ")}
-                          {item.album && ` • ${item.album}`}
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-zinc-400 bg-white/5 px-2 py-1 rounded-md border border-white/5">
-                        {item.source}
-                      </div>
+                      <span className="text-sm text-white">
+                        {searchOptions[source] || sourceLabels[source] || source}
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-zinc-500 -rotate-90" />
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* 第二级：选定平台后的具体结果 */}
+              {selectedSource && (
+                <>
+                  {isSearching ? (
+                    <div className="flex justify-center items-center h-full text-zinc-500 text-sm">
+                      正在搜索 {searchOptions[selectedSource] || sourceLabels[selectedSource]} 的音频...
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {sourceList.length === 0 && (
+                        <div className="text-center py-10 text-zinc-500 text-sm">
+                          该平台没有找到其他可用的音频
+                        </div>
+                      )}
+                      {sourceList.map((item, index) => (
+                        <div
+                          key={item.id + index}
+                          onClick={() => handleSwitchTrack(item)}
+                          className="flex justify-between items-center p-3 rounded-xl hover:bg-white/5 active:bg-white/10 cursor-pointer transition-colors"
+                        >
+                          <div className="flex-1 min-w-0 mr-4">
+                            <div className="text-sm text-white truncate">
+                              {item.name}
+                            </div>
+                            <div className="text-xs text-zinc-500 truncate mt-1">
+                              {item.artist.join(" / ")}
+                              {item.album && ` • ${item.album}`}
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-zinc-400 bg-white/5 px-2 py-1 rounded-md border border-white/5">
+                            {item.source}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
