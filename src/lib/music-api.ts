@@ -12,10 +12,9 @@ import { searchSuggest } from "@/lib/netease/netease-api";
 import { MusicProviderFactory, isAbort } from "./music-provider";
 import { logger } from "@/lib/logger";
 
-// const TTL_SHORT = 60 * 60 * 1000; // 60 minutes
 const TTL_LONG = 7 * 24 * 60 * 60 * 1000; // 7 days
-/** 签名直链时效不定，与 url-cache-store 的内存 TTL 保持一致，过期即重新解析 */
 const TTL_URL = 15 * 60 * 1000; // 15 minutes
+
 /** 从 LRCLIB 在线搜索歌词 */
 async function searchLrcLib(title: string, artist: string, duration?: number): Promise<string | null> {
   try {
@@ -28,7 +27,6 @@ async function searchLrcLib(title: string, artist: string, duration?: number): P
     const results = await resp.json();
     if (!Array.isArray(results) || results.length === 0) return null;
 
-    // 优先选时长最接近的
     let best = results[0];
     if (duration && results.length > 1) {
       best = results.reduce((a: any, b: any) =>
@@ -44,7 +42,6 @@ async function searchLrcLib(title: string, artist: string, duration?: number): P
 
 export const musicApi = {
   /* ---------------- 搜索 ---------------- */
-
   async search(
     query: string,
     source: MusicSource = "joox",
@@ -56,7 +53,6 @@ export const musicApi = {
     if (source === "all") {
       return this.searchAll(query, page, count, signal, searchIntent);
     }
-
     return MusicProviderFactory.getProvider(source).search(
       query,
       page,
@@ -67,7 +63,6 @@ export const musicApi = {
   },
 
   /* ---------------- 全网搜索 ---------------- */
-
   async searchAll(
     query: string,
     page = 1,
@@ -81,8 +76,7 @@ export const musicApi = {
     >;
   },
 
-  /* ---------------- 最佳匹配搜索（串行） ---------------- */
-
+  /* ---------------- 最佳匹配搜索 ---------------- */
   async searchBestMatch({
     query,
     sources,
@@ -147,7 +141,6 @@ export const musicApi = {
   },
 
   /* ---------------- URL ---------------- */
-
   async getUrl(
     idOrUrl: string,
     source: MusicSource,
@@ -156,7 +149,6 @@ export const musicApi = {
   ): Promise<string | null> {
     if (idOrUrl.startsWith("http")) return idOrUrl;
     const key = `url:${source}:${idOrUrl}:${br}`;
-
     return cachedFetch<string | null>(
       key,
       async () => {
@@ -177,7 +169,32 @@ export const musicApi = {
   },
 
   /* ---------------- 封面 ---------------- */
+  async getPic(
+    idOrUrl: string,
+    source: MusicSource,
+    size: number = 800
+  ): Promise<string | null> {
+    if (idOrUrl.startsWith("http") && source !== "bilibili") return idOrUrl;
+    const key = `pic:v2:${source}:${idOrUrl}:${size}`;
+    return cachedFetch<string | null>(
+      key,
+      async () => {
+        try {
+          const track = { id: idOrUrl, pic_id: idOrUrl, source } as MusicTrack;
+          return await MusicProviderFactory.getProvider(source).getPic(
+            track,
+            size
+          );
+        } catch (e) {
+          logger.error("music-api", "getPic failed", e);
+          return null;
+        }
+      },
+      TTL_LONG
+    );
+  },
 
+  /* ---------------- 歌词 ---------------- */
   async getLyric(
     id: string,
     source: MusicSource,
@@ -189,16 +206,13 @@ export const musicApi = {
       key,
       async () => {
         try {
-          // 1. 先查原音源
           const track = { id, lyric_id: id, source } as MusicTrack;
           const res = await MusicProviderFactory.getProvider(source).getLyric(track);
 
-          // 2. 如果原音源有歌词，直接返回
           if (res && res.lyric && res.lyric.trim() !== "") {
             return res;
           }
 
-          // 3. 原音源没歌词，尝试 LRCLIB 搜索
           if (trackInfo && trackInfo.name) {
             logger.info("music-api", `No lyric in source, searching LRCLIB for: ${trackInfo.name}`);
             const online = await searchLrcLib(
@@ -221,28 +235,7 @@ export const musicApi = {
     );
   },
 
-  /* ---------------- 歌词 ---------------- */
-
-  async getLyric(id: string, source: MusicSource): Promise<SongLyric | null> {
-    const key = `lyric:${source}:${id}`;
-
-    return cachedFetch<SongLyric | null>(
-      key,
-      async () => {
-        try {
-          const track = { id, lyric_id: id, source } as MusicTrack;
-          return await MusicProviderFactory.getProvider(source).getLyric(track);
-        } catch (e) {
-          logger.error("music-api", "getLyric failed", e);
-          return null;
-        }
-      },
-      TTL_LONG
-    );
-  },
-
   /* ---------------- 搜索建议 ---------------- */
-
   async getSearchSuggestions(query: string): Promise<SearchSuggestionItem[]> {
     const q = query.trim();
     if (!q) return [];
@@ -261,10 +254,8 @@ export const musicApi = {
       ) => {
         text = text.trim();
         if (!text) return;
-
         const key = `${type}:${text}`;
         if (seen.has(key)) return;
-
         seen.add(key);
         suggestions.push({
           text,
