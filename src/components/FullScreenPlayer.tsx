@@ -367,7 +367,7 @@ export function FullScreenPlayer({
             <ChevronDown className="h-6 w-6" />
           </Button>
         </div>
-        <div className="flex justify-center gap-2">
+        <div className="flex justify-center">
           {!showLyrics && (
             <Button
               variant="ghost"
@@ -376,16 +376,6 @@ export function FullScreenPlayer({
               onClick={() => setQualityDrawerOpen(true)}
             >
               {getQualityShortLabel(quality)}
-            </Button>
-          )}
-          {!showLyrics && currentTrack && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs tracking-widest text-white/50 hover:text-white hover:bg-white/10 h-8 px-3"
-              onClick={handleFetchSources}
-            >
-              切换音源
             </Button>
           )}
         </div>
@@ -512,6 +502,7 @@ export function FullScreenPlayer({
                   onNavigate={() => {
                     onClose();
                   }}
+                  onSwitchSource={handleFetchSources}
                 />
                 <AddToPlaylistDrawer
                   open={isAddToPlaylistOpen}

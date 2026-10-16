@@ -19,6 +19,7 @@ import {
   Link2,
   Check,
   Folder,
+  Search,
 } from "lucide-react";
 import { ReactNode, useState, useMemo } from "react";
 import { MusicCover } from "./MusicCover";
@@ -66,6 +67,7 @@ interface MusicTrackMobileMenuProps {
   customActions?: ReactNode;
   triggerClassName?: string;
   onNavigate?: () => void;
+  onSwitchSource?: () => void; // 新增：手动全网选源
 }
 
 const ActionButton = ({
@@ -104,6 +106,7 @@ export function MusicTrackMobileMenu({
   customActions,
   triggerClassName,
   onNavigate,
+  onSwitchSource, // 新增
 }: MusicTrackMobileMenuProps) {
   const coverUrl = useMusicCover(track, open);
   const navigate = useNavigate();
@@ -142,7 +145,6 @@ export function MusicTrackMobileMenu({
     artist?: string,
     id?: string
   ) => {
-    // 如果支持详情查询，但没有 ID，尝试获取详情
     if (
       (provider.getArtistDetail || provider.getAlbumDetail) &&
       (!id || id === "0") &&
@@ -157,7 +159,6 @@ export function MusicTrackMobileMenu({
             id = String(detail.al.id);
           }
 
-          // B站音源：歌手取 UP 的 mid
           if (type === "artist" && track.source === "bilibili") {
             if (track.artist_ids?.[0]) {
               id = track.artist_ids[0];
@@ -166,17 +167,13 @@ export function MusicTrackMobileMenu({
             }
           }
 
-          // B站音源：从详情中提取合集/分P 信息
           if (type === "album" && track.source === "bilibili") {
-            // 优先使用已有的 album_id
             if (track.album_id?.startsWith("bilibili_")) {
               id = track.album_id;
             } else if (detail.ugc_season?.id) {
-              // 从 ugc_season 构建专辑 ID
               const ownerMid = detail.owner?.mid;
               id = buildBilibiliSeriesAlbumId(detail.ugc_season.id, ownerMid);
             } else if (detail.pages && detail.pages.length > 1) {
-              // 多分P 视频，构建分P 专辑 ID
               const parsed = parseBilibiliTrackId(track.id);
               if (parsed?.bvid) {
                 id = buildBilibiliMultiPAlbumId(parsed.bvid);
@@ -195,7 +192,6 @@ export function MusicTrackMobileMenu({
       id !== "0"
     ) {
       if (type === "artist" && provider.getArtistDetail) {
-        // B站音源：仅原生端支持 UP 主页，Web 端走搜索回退
         if (track.source === "bilibili" && !IS_NATIVE) {
           // fallthrough to search
         } else {
@@ -330,7 +326,6 @@ export function MusicTrackMobileMenu({
               </ActionButton>
             )}
 
-            {/* 如果支持评论，显示评论入口 */}
             {provider.getComments && (
               <ActionButton
                 icon={MessageSquareQuote}
@@ -343,7 +338,6 @@ export function MusicTrackMobileMenu({
               </ActionButton>
             )}
 
-            {/* 除播客/Alist 外，有歌手即显示歌手入口 */}
             {track.source !== "podcast" &&
               track.source !== "alist" &&
               track.artist?.length > 0 && (
@@ -366,7 +360,6 @@ export function MusicTrackMobileMenu({
                 </ActionButton>
               )}
 
-            {/* 除播客/Alist 外，有专辑即显示专辑入口 */}
             {track.source !== "podcast" &&
               track.source !== "alist" &&
               track.album && (
@@ -385,7 +378,6 @@ export function MusicTrackMobileMenu({
                 </ActionButton>
               )}
 
-            {/* Alist 音源：专辑入口跳转到所在目录 */}
             {track.source === "alist" && track.album && (
               <ActionButton
                 icon={Folder}
@@ -406,7 +398,20 @@ export function MusicTrackMobileMenu({
               </ActionButton>
             )}
 
-            {/* 音源显示：local/podcast 或歌曲不在任何歌单/收藏中时不可切换 */}
+            {/* 手动全网搜索音源（新增） */}
+            {onSwitchSource && (
+              <ActionButton
+                icon={Search}
+                onClick={() => {
+                  onSwitchSource();
+                  onOpenChange(false);
+                }}
+              >
+                手动选择音源
+              </ActionButton>
+            )}
+
+            {/* 原有自动切换音源 */}
             <Button
               variant="ghost"
               className="justify-start w-full"
