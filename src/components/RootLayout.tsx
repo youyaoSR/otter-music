@@ -2,7 +2,8 @@ import { NativeThemeProvider } from "@/components/ui/native-theme-provider";
 import type { PropsWithChildren } from "react";
 import { Toaster } from "react-hot-toast";
 
-export default function RootLayout({ children }: PropsWithChildren) {
+// 改为命名导出，匹配项目里其他地方的使用方式
+export function RootLayout({ children }: PropsWithChildren) {
   return (
     <NativeThemeProvider
       attribute="class"
