@@ -47,6 +47,7 @@ import toast from "react-hot-toast";
 import { useCoverColors } from "@/hooks/useCoverColors";
 import { useLandscapeMode } from "@/hooks/useLandscapeMode";
 import { LandscapePlayer } from "@/components/LandscapePlayer";
+import { getAllVisibleSourcesForSwitch } from "@/hooks/use-aggregated-sources"; // 引入平台列表
 
 interface ModeIconProps {
   isRepeat: boolean;
@@ -147,7 +148,6 @@ export function FullScreenPlayer({
   onClose,
 }: FullScreenPlayerProps) {
   const isMounted = useMounted();
-  /** 横屏沉浸模式：手动进入后锁定横屏，由独立的 LandscapePlayer 渲染 */
   const {
     isLandscapeMode,
     enter: enterLandscapeMode,
@@ -167,9 +167,25 @@ export function FullScreenPlayer({
     setShowSourceMenu(true);
 
     try {
+      const sources = getAllVisibleSourcesForSwitch();
       const query = `${track.name} ${track.artist.join(" ")}`;
-      const res = await musicApi.searchAll(query, 1, 30);
-      setSourceList(res.items || []);
+      const allResults: MusicTrack[] = [];
+
+      // 并发请求每个平台，每个平台最多取 15 条
+      await Promise.all(
+        sources.map(async (source) => {
+          try {
+            const res = await musicApi.search(query, source, 1, 15);
+            if (res?.items) {
+              allResults.push(...res.items);
+            }
+          } catch (e) {
+            console.warn(`搜索平台 ${source} 失败`, e);
+          }
+        })
+      );
+
+      setSourceList(allResults);
     } catch (e) {
       console.error("搜索音源失败", e);
       toast.error("搜索音源失败");
@@ -261,10 +277,8 @@ export function FullScreenPlayer({
   );
 
   const currentTrack = queue[currentIndex] || null;
-
   const [isCoverPreviewOpen, setIsCoverPreviewOpen] = useState(false);
 
-  /** 封面长按 → 打开图片预览（无封面时提示） */
   const handleCoverLongPress = () => {
     if (!coverUrl) {
       toast.error("暂无封面");
@@ -285,7 +299,6 @@ export function FullScreenPlayer({
     coverUrl && fullScreenBackgroundMode === "theme" ? coverUrl : null
   );
 
-  /** 封面投影色：背景基色 Lab 亮度 -20，与背景渐变同色相，避免高饱和主色形成突兀彩色光晕 */
   const shadowColor = useMemo(() => {
     if (!backgroundColors) return null;
     const lab = srgbToLab(backgroundColors.top);
@@ -307,7 +320,6 @@ export function FullScreenPlayer({
 
   if (!isMounted) return null;
 
-  // 循环切换播放模式：none → repeat → shuffle → none
   const handleModeToggle = () => {
     if (!isShuffle && !isRepeat) toggleRepeat();
     else if (isRepeat) {
@@ -333,14 +345,12 @@ export function FullScreenPlayer({
         isFullScreen ? "translate-y-0" : "translate-y-full"
       )}
     >
-      {/* 背景渲染层 */}
       <BackgroundLayer
         colors={backgroundColors}
         coverUrl={coverUrl}
         mode={fullScreenBackgroundMode}
       />
 
-      {/* 横屏沉浸模式：独立组件，覆盖于普通布局之上 */}
       {isLandscapeMode && (
         <LandscapePlayer
           background={
@@ -360,9 +370,7 @@ export function FullScreenPlayer({
             variant="ghost"
             size="icon"
             className="h-12 w-12 text-white/60 hover:bg-white/10 hover:text-white"
-            onClick={() => {
-              onClose();
-            }}
+            onClick={() => onClose()}
           >
             <ChevronDown className="h-6 w-6" />
           </Button>
@@ -409,7 +417,6 @@ export function FullScreenPlayer({
       <div
         className="flex-1 flex flex-col items-center justify-center px-2 relative z-10 overflow-hidden cursor-pointer"
         onClick={() => {
-          // 封面预览打开期间不切换歌词，避免长按后的 click 冒泡到这里
           if (isCoverPreviewOpen) return;
           setShowLyrics(!showLyrics);
         }}
@@ -488,20 +495,12 @@ export function FullScreenPlayer({
                   track={currentTrack}
                   open={moreDrawerOpen}
                   onOpenChange={setMoreDrawerOpen}
-                  onAddToPlaylist={() => {
-                    setIsAddToPlaylistOpen(true);
-                  }}
-                  onDownload={() => {
-                    downloadMusicTrack(currentTrack, parseInt(quality));
-                  }}
+                  onAddToPlaylist={() => setIsAddToPlaylistOpen(true)}
+                  onDownload={() => downloadMusicTrack(currentTrack, parseInt(quality))}
                   isFavorite={isCurrentTrackFavorite}
-                  onToggleLike={() => {
-                    handleToggleLike();
-                  }}
+                  onToggleLike={handleToggleLike}
                   triggerClassName="h-10 w-10 text-white/70 hover:bg-white/10 hover:text-white"
-                  onNavigate={() => {
-                    onClose();
-                  }}
+                  onNavigate={onClose}
                   onSwitchSource={handleFetchSources}
                 />
                 <AddToPlaylistDrawer
@@ -618,7 +617,7 @@ export function FullScreenPlayer({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex flex-col justify-end sm:justify-center items-center">
           <div className="bg-zinc-900 w-full sm:max-w-md h-[70vh] sm:h-[60vh] sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl border border-white/10">
             <div className="flex justify-between items-center px-5 py-4 border-b border-white/10">
-              <h3 className="text-sm font-medium text-white">选择其他音源</h3>
+              <h3 className="text-sm font-medium text-white">选择具体的音频</h3>
               <button
                 onClick={() => setShowSourceMenu(false)}
                 className="text-zinc-500 hover:text-white transition-colors text-sm"
@@ -630,13 +629,13 @@ export function FullScreenPlayer({
             <div className="flex-1 overflow-y-auto px-2 py-2">
               {isSearching ? (
                 <div className="flex justify-center items-center h-full text-zinc-500 text-sm">
-                  正在全网搜索中...
+                  正在全网搜索所有音频版本...
                 </div>
               ) : (
                 <div className="space-y-1">
                   {sourceList.length === 0 && (
                     <div className="text-center py-10 text-zinc-500 text-sm">
-                      没有找到其他可用的音源
+                      没有找到其他可用的音频
                     </div>
                   )}
                   {sourceList.map((item, index) => (
@@ -649,8 +648,10 @@ export function FullScreenPlayer({
                         <div className="text-sm text-white truncate">
                           {item.name}
                         </div>
+                        {/* 新增：显示专辑名，用来区分不同的具体音频（如 Live 版、录音室版） */}
                         <div className="text-xs text-zinc-500 truncate mt-1">
                           {item.artist.join(" / ")}
+                          {item.album && ` • ${item.album}`}
                         </div>
                       </div>
                       <div className="text-[10px] text-zinc-400 bg-white/5 px-2 py-1 rounded-md border border-white/5">
