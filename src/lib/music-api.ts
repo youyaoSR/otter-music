@@ -16,6 +16,31 @@ import { logger } from "@/lib/logger";
 const TTL_LONG = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** 签名直链时效不定，与 url-cache-store 的内存 TTL 保持一致，过期即重新解析 */
 const TTL_URL = 15 * 60 * 1000; // 15 minutes
+/** 从 LRCLIB 在线搜索歌词 */
+async function searchLrcLib(title: string, artist: string, duration?: number): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({
+      track_name: title,
+      artist_name: artist || "",
+    });
+    const resp = await fetch(`https://lrclib.net/api/search?${params}`);
+    if (!resp.ok) return null;
+    const results = await resp.json();
+    if (!Array.isArray(results) || results.length === 0) return null;
+
+    // 优先选时长最接近的
+    let best = results[0];
+    if (duration && results.length > 1) {
+      best = results.reduce((a: any, b: any) =>
+        Math.abs((a.duration || 0) - duration) < Math.abs((b.duration || 0) - duration) ? a : b
+      );
+    }
+    return best.syncedLyrics || best.plainLyrics || null;
+  } catch (e) {
+    logger.warn("music-api", "LRCLIB search failed", e);
+    return null;
+  }
+}
 
 export const musicApi = {
   /* ---------------- 搜索 ---------------- */
@@ -153,25 +178,42 @@ export const musicApi = {
 
   /* ---------------- 封面 ---------------- */
 
-  async getPic(
-    idOrUrl: string,
+  async getLyric(
+    id: string,
     source: MusicSource,
-    size: number = 800
-  ): Promise<string | null> {
-    if (idOrUrl.startsWith("http") && source !== "bilibili") return idOrUrl;
-    // v2：咪咕封面由相对路径改为补全 CDN 域名，旧缓存需作废，避免继续命中失效地址
-    const key = `pic:v2:${source}:${idOrUrl}:${size}`;
-    return cachedFetch<string | null>(
+    trackInfo?: { name: string; artist: string[]; duration?: number }
+  ): Promise<SongLyric | null> {
+    const key = `lyric:${source}:${id}`;
+
+    return cachedFetch<SongLyric | null>(
       key,
       async () => {
         try {
-          const track = { id: idOrUrl, pic_id: idOrUrl, source } as MusicTrack;
-          return await MusicProviderFactory.getProvider(source).getPic(
-            track,
-            size
-          );
+          // 1. 先查原音源
+          const track = { id, lyric_id: id, source } as MusicTrack;
+          const res = await MusicProviderFactory.getProvider(source).getLyric(track);
+
+          // 2. 如果原音源有歌词，直接返回
+          if (res && res.lyric && res.lyric.trim() !== "") {
+            return res;
+          }
+
+          // 3. 原音源没歌词，尝试 LRCLIB 搜索
+          if (trackInfo && trackInfo.name) {
+            logger.info("music-api", `No lyric in source, searching LRCLIB for: ${trackInfo.name}`);
+            const online = await searchLrcLib(
+              trackInfo.name,
+              trackInfo.artist?.[0] || "",
+              trackInfo.duration
+            );
+            if (online) {
+              return { lyric: online, tlyric: "" };
+            }
+          }
+
+          return res;
         } catch (e) {
-          logger.error("music-api", "getPic failed", e);
+          logger.error("music-api", "getLyric failed", e);
           return null;
         }
       },

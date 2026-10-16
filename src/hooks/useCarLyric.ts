@@ -84,7 +84,7 @@ export function useCarLyric() {
     let cancelled = false;
 
     musicApi
-      .getLyric(lyricId, source)
+   .getLyric(lyricId, source, track)
       .then((res) => {
         if (cancelled) return;
 
