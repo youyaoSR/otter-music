@@ -11,7 +11,8 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, onBack, action }: PageHeaderProps) {
   return (
-    <div className="flex items-center justify-between px-4 pb-1 pt-2 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
+    // 将 pt-2 改成了 pt-12，强行留出 48px 的安全距离，足够避开手机状态栏
+    <div className="flex items-center justify-between px-4 pb-1 pt-12 border-b bg-background/80 backdrop-blur-sm sticky top-0 z-10">
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <Button
           variant="ghost"
